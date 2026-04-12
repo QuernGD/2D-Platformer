@@ -15,18 +15,44 @@ public final class GameScene: SKScene {
     public static let tileSize:      CGFloat = 32
     public static let fixedTimeStep: CGFloat = 1.0 / 60.0
 
+    // MARK: - Game state
+
+    private enum GameState {
+        case playing   // normal gameplay
+        case paused    // pause overlay up
+        case dying     // death animation running
+        case gameOver  // game-over overlay up (out of lives)
+        case complete  // transitioning to LevelCompleteScene
+    }
+    private var state: GameState = .playing
+
     // MARK: - World state
     private var map: TileMap!
     private var player: Player!
     private var enemies: [Goomba] = []
     private var camController: CameraController!
+    private var flagpoleColumn: Int = 0
 
     /// Tile visuals keyed by `row * map.width + col`. Used to update tiles
     /// in place when a coin is collected or a question block is hit.
     private var tileNodes: [Int: SKNode] = [:]
 
+    // MARK: - HUD + progression
     private var coinCount: Int = 0
     private var coinLabel: SKLabelNode!
+
+    private var lives: Int = 3
+    private var livesLabel: SKLabelNode!
+
+    private var pauseButton: SKShapeNode!
+
+    /// Seconds of gameplay elapsed — paused when not playing.
+    private var gameTime: CGFloat = 0
+
+    // Active overlays (pause / game over). Only one is up at a time.
+    private var activeOverlay: SKNode?
+    /// Named hit-test rects for overlay buttons.
+    private var overlayButtons: [(name: String, node: SKShapeNode)] = []
 
     // MARK: - Input
     private var input = InputState()
@@ -113,6 +139,31 @@ public final class GameScene: SKScene {
         coinLabel.zPosition = 1_000
         cam.addChild(coinLabel)
 
+        livesLabel = SKLabelNode(text: "Lives: 3")
+        livesLabel.fontName  = "Helvetica-Bold"
+        livesLabel.fontSize  = 22
+        livesLabel.fontColor = .white
+        livesLabel.horizontalAlignmentMode = .right
+        livesLabel.verticalAlignmentMode   = .top
+        livesLabel.zPosition = 1_000
+        cam.addChild(livesLabel)
+
+        // Small pause button (top-right, below lives)
+        pauseButton = SKShapeNode(rectOf: CGSize(width: 44, height: 44),
+                                   cornerRadius: 6)
+        pauseButton.fillColor   = SKColor(white: 0, alpha: 0.5)
+        pauseButton.strokeColor = .white
+        pauseButton.lineWidth   = 2
+        pauseButton.zPosition   = 1_000
+        let pauseLabel = SKLabelNode(text: "II")
+        pauseLabel.fontName  = "Helvetica-Bold"
+        pauseLabel.fontSize  = 22
+        pauseLabel.fontColor = .white
+        pauseLabel.verticalAlignmentMode   = .center
+        pauseLabel.horizontalAlignmentMode = .center
+        pauseButton.addChild(pauseLabel)
+        cam.addChild(pauseButton)
+
         #if os(iOS) || os(tvOS)
         touchControls = TouchControls()
         cam.addChild(touchControls)
@@ -131,20 +182,28 @@ public final class GameScene: SKScene {
 
         var topInset: CGFloat = 16
         var leftInset: CGFloat = 16
+        var rightInset: CGFloat = 16
 
         #if os(iOS) || os(tvOS)
         let safeInsets = view?.safeAreaInsets ?? .zero
         topInset  += safeInsets.top
         leftInset += safeInsets.left
-        coinLabel.position = CGPoint(
-            x: -halfW + leftInset,
-            y:  halfH - topInset)
+        rightInset += safeInsets.right
         touchControls?.layout(sceneSize: size, safeInsets: safeInsets)
-        #else
+        #endif
+
         coinLabel.position = CGPoint(
             x: -halfW + leftInset,
             y:  halfH - topInset)
-        #endif
+
+        livesLabel.position = CGPoint(
+            x:  halfW - rightInset,
+            y:  halfH - topInset)
+
+        // Pause button sits just below the lives label.
+        pauseButton.position = CGPoint(
+            x:  halfW - rightInset - 22,
+            y:  halfH - topInset - 55)
     }
 
     private func updateCoinLabel() {
@@ -264,31 +323,34 @@ public final class GameScene: SKScene {
         map.setTile(.coin, at: 115, row: 8)
         map.setTile(.coin, at: 119, row: 6)
 
-        // 12. Stairs up to the flagpole (cols 130-135)
+        // 12. Stairs up to the flagpole (cols 183-188) — placed in the
+        //     last 20 tiles so the flagpole sits within the trigger zone.
         let finalStairs = [2, 3, 4, 5, 6, 6]
         for (i, top) in finalStairs.enumerated() {
-            let col = 130 + i
+            let col = 183 + i
             for row in 2...(top + 1) {
                 map.setTile(.solid, at: col, row: row)
             }
         }
         // Goomba on the top of the stairs
-        spawnGoomba(col: 135, row: 8)
+        spawnGoomba(col: 188, row: 8)
 
-        // 13. Flagpole — tall thin column at col 140, rows 2-12
+        // 13. Flagpole — tall thin column at col 192, rows 2-12.
+        //     `flagpoleColumn` is used by the completion trigger.
+        flagpoleColumn = 192
         for row in 2...12 {
-            map.setTile(.solid, at: 140, row: row)
+            map.setTile(.solid, at: 192, row: row)
         }
 
-        // 14. End-zone flat ground is already in place (rows 0-1 were
-        //     filled for the full width). Add a couple more goombas to
-        //     reach our ten-enemy minimum and some scattered coins.
-        spawnGoomba(col: 155, row: 3)
-        spawnGoomba(col: 170, row: 3)
-        spawnGoomba(col: 185, row: 3)
+        // 14. Extra content in the lull between the precision pit and the
+        //     final staircase so cols 121-180 aren't empty.
+        spawnGoomba(col: 135, row: 3)
+        spawnGoomba(col: 150, row: 3)
+        spawnGoomba(col: 165, row: 3)
+        spawnGoomba(col: 178, row: 3)
 
-        // Decorative coin line along the endzone
-        for col in stride(from: 150, through: 195, by: 5) {
+        // Decorative coin line through the mid-section
+        for col in stride(from: 125, through: 180, by: 5) {
             map.setTile(.coin, at: col, row: 4)
         }
 
@@ -394,6 +456,13 @@ public final class GameScene: SKScene {
     }
 
     private func step(dt: CGFloat) {
+        // Gameplay only advances during the `.playing` state. Pause, death
+        // animation, game over, and the level-complete transition all freeze
+        // the simulation.
+        guard state == .playing else { return }
+
+        gameTime += dt
+
         // Pull touch-control state into the shared InputState.
         #if os(iOS) || os(tvOS)
         input.leftHeld  = touchControls.leftHeld
@@ -419,9 +488,16 @@ public final class GameScene: SKScene {
             playLandingSquash()
         }
 
-        // Fell into a pit — respawn (simple for now).
-        if player.position.y < -40 {
-            player.teleport(to: spawnPoint)
+        // Fell into a pit — trigger death sequence.
+        if player.position.y < -40 && state == .playing {
+            startDeath()
+            return
+        }
+
+        // Reached the flagpole trigger zone → level complete.
+        let triggerX = CGFloat(flagpoleColumn) * GameScene.tileSize
+        if player.position.x >= triggerX && state == .playing {
+            completeLevel()
         }
     }
 
@@ -513,9 +589,8 @@ public final class GameScene: SKScene {
                 enemy.squash()
                 player.bounce(velocity: 440, jumpHeld: input.jumpHeld)
             } else {
-                // Simple death — respawn at spawn point.
-                player.teleport(to: spawnPoint)
-                break
+                startDeath()
+                return
             }
         }
     }
@@ -529,13 +604,242 @@ public final class GameScene: SKScene {
         n.run(SKAction.sequence([squash, over, settle]), withKey: "squash")
     }
 
+    // MARK: - Death + respawn
+
+    private func updateLivesLabel() {
+        livesLabel.text = "Lives: \(max(0, lives))"
+    }
+
+    /// Enter the death sequence: freeze briefly, bounce the sprite up, let
+    /// it fall offscreen, fade to black, then either respawn or show the
+    /// game over screen.
+    private func startDeath() {
+        guard state == .playing else { return }
+        state = .dying
+        player.velocity = .zero
+
+        guard let n = player.node else {
+            finalizeDeath()
+            return
+        }
+        n.removeAllActions()
+
+        let freeze = SKAction.wait(forDuration: 0.2)
+        let bounce = SKAction.moveBy(x: 0, y: 120, duration: 0.35)
+        bounce.timingMode = .easeOut
+        let fall = SKAction.moveBy(x: 0, y: -600, duration: 0.7)
+        fall.timingMode = .easeIn
+        let done = SKAction.run { [weak self] in self?.finalizeDeath() }
+        n.run(SKAction.sequence([freeze, bounce, fall, done]))
+    }
+
+    private func finalizeDeath() {
+        lives -= 1
+        updateLivesLabel()
+
+        // Fade-to-black transition overlay (covers the visible area).
+        let halfW = size.width  * 0.5
+        let halfH = size.height * 0.5
+        let fade = SKShapeNode(rect: CGRect(
+            x: -halfW, y: -halfH,
+            width: size.width, height: size.height))
+        fade.fillColor   = .black
+        fade.strokeColor = .clear
+        fade.alpha       = 0
+        fade.zPosition   = 2_000
+        camera?.addChild(fade)
+
+        let fadeIn  = SKAction.fadeAlpha(to: 1, duration: 0.25)
+        let hold    = SKAction.wait(forDuration: 0.25)
+        let act = SKAction.run { [weak self] in
+            guard let self = self else { return }
+            if self.lives <= 0 {
+                self.showGameOver()
+            } else {
+                self.respawn()
+            }
+        }
+        let fadeOut = SKAction.fadeAlpha(to: 0, duration: 0.35)
+        let remove  = SKAction.removeFromParent()
+        fade.run(SKAction.sequence([fadeIn, hold, act, fadeOut, remove]))
+    }
+
+    private func respawn() {
+        player.teleport(to: spawnPoint)
+        player.node?.position = spawnPoint
+        player.node?.removeAllActions()
+        player.node?.setScale(1.0)
+        state = .playing
+    }
+
+    // MARK: - Level complete
+
+    private func completeLevel() {
+        guard state == .playing else { return }
+        state = .complete
+        guard let view = self.view else { return }
+        let scene = LevelCompleteScene(
+            size: size,
+            coins: coinCount,
+            elapsed: TimeInterval(gameTime))
+        scene.scaleMode = .resizeFill
+        view.presentScene(scene, transition: .fade(withDuration: 0.5))
+    }
+
+    // MARK: - Pause
+
+    private func pauseGame() {
+        guard state == .playing else { return }
+        state = .paused
+        showPauseOverlay()
+    }
+
+    private func resumeGame() {
+        guard state == .paused else { return }
+        hideOverlay()
+        state = .playing
+    }
+
+    private func showPauseOverlay() {
+        let overlay = makeOverlay(title: "PAUSED", buttons: [
+            ("resume",   "RESUME"),
+            ("mainMenu", "MAIN MENU")
+        ])
+        camera?.addChild(overlay)
+        activeOverlay = overlay
+    }
+
+    private func showGameOver() {
+        state = .gameOver
+        let overlay = makeOverlay(title: "GAME OVER", buttons: [
+            ("retry",    "RETRY"),
+            ("mainMenu", "MAIN MENU")
+        ])
+        camera?.addChild(overlay)
+        activeOverlay = overlay
+    }
+
+    private func hideOverlay() {
+        activeOverlay?.removeFromParent()
+        activeOverlay = nil
+        overlayButtons.removeAll()
+    }
+
+    /// Build a modal overlay pinned to the camera. Returns the root node and
+    /// populates `overlayButtons` with hit-test entries for each button.
+    private func makeOverlay(title: String,
+                             buttons: [(name: String, label: String)]) -> SKNode {
+        overlayButtons.removeAll()
+
+        let root = SKNode()
+        root.zPosition = 1_500
+
+        // Full-screen dark backing.
+        let halfW = size.width  * 0.5
+        let halfH = size.height * 0.5
+        let bg = SKShapeNode(rect: CGRect(
+            x: -halfW, y: -halfH, width: size.width, height: size.height))
+        bg.fillColor   = SKColor(white: 0, alpha: 0.7)
+        bg.strokeColor = .clear
+        bg.zPosition   = 0
+        root.addChild(bg)
+
+        let titleLabel = SKLabelNode(text: title)
+        titleLabel.fontName  = "Helvetica-Bold"
+        titleLabel.fontSize  = 48
+        titleLabel.fontColor = .white
+        titleLabel.position  = CGPoint(x: 0, y: 80)
+        titleLabel.zPosition = 1
+        root.addChild(titleLabel)
+
+        let buttonSize = CGSize(width: 240, height: 56)
+        for (i, entry) in buttons.enumerated() {
+            let y: CGFloat = CGFloat(-20 - i * 75)
+            let rect = CGRect(
+                x: -buttonSize.width * 0.5,
+                y: -buttonSize.height * 0.5,
+                width: buttonSize.width,
+                height: buttonSize.height)
+            let btn = SKShapeNode(rect: rect, cornerRadius: 10)
+            btn.fillColor   = SKColor(white: 0, alpha: 0.55)
+            btn.strokeColor = .white
+            btn.lineWidth   = 2.5
+            btn.position    = CGPoint(x: 0, y: y)
+            btn.name        = entry.name
+            btn.zPosition   = 1
+
+            let label = SKLabelNode(text: entry.label)
+            label.fontName  = "Helvetica-Bold"
+            label.fontSize  = 26
+            label.fontColor = .white
+            label.verticalAlignmentMode   = .center
+            label.horizontalAlignmentMode = .center
+            btn.addChild(label)
+
+            root.addChild(btn)
+            overlayButtons.append((entry.name, btn))
+        }
+        return root
+    }
+
+    /// Attempt to handle a tap on the HUD (overlay buttons first, then the
+    /// pause button). Returns `true` if the tap was consumed so the caller
+    /// knows to skip world-space routing.
+    private func handleHUDTap(atCameraPoint p: CGPoint) -> Bool {
+        // Overlay buttons take priority when one is visible.
+        if activeOverlay != nil {
+            for (name, node) in overlayButtons where node.contains(p) {
+                handleOverlayAction(name: name)
+                return true
+            }
+            // Tap anywhere on an active overlay is consumed, even if it
+            // misses a button — prevents the underlying touch controls
+            // from receiving input while paused / game over.
+            return true
+        }
+
+        // Pause button (only while playing).
+        if state == .playing, pauseButton.contains(p) {
+            pauseGame()
+            return true
+        }
+        return false
+    }
+
+    private func handleOverlayAction(name: String) {
+        switch name {
+        case "resume":
+            resumeGame()
+        case "retry":
+            guard let view = self.view else { return }
+            let game = GameScene(size: size)
+            game.scaleMode = .resizeFill
+            view.presentScene(game, transition: .fade(withDuration: 0.4))
+        case "mainMenu":
+            guard let view = self.view else { return }
+            let menu = MainMenuScene(size: size)
+            menu.scaleMode = .resizeFill
+            view.presentScene(menu, transition: .fade(withDuration: 0.4))
+        default:
+            break
+        }
+    }
+
     // MARK: - Input: iOS touches
 
     #if os(iOS) || os(tvOS)
     public override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for touch in touches { touchControls.touchBegan(touch) }
+        guard let cam = camera else { return }
+        for touch in touches {
+            let camPoint = touch.location(in: cam)
+            if handleHUDTap(atCameraPoint: camPoint) { continue }
+            if state == .playing {
+                touchControls.touchBegan(touch)
+            }
+        }
     }
     public override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard state == .playing else { return }
         for touch in touches { touchControls.touchMoved(touch) }
     }
     public override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -550,6 +854,12 @@ public final class GameScene: SKScene {
 
     #if os(macOS)
     public override var acceptsFirstResponder: Bool { true }
+
+    public override func mouseDown(with event: NSEvent) {
+        guard let cam = camera else { return }
+        let camPoint = event.location(in: cam)
+        _ = handleHUDTap(atCameraPoint: camPoint)
+    }
 
     public override func keyDown(with event: NSEvent) {
         if event.isARepeat { return }

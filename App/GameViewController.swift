@@ -17,9 +17,9 @@ final class GameViewController: UIViewController {
         // UIView's default is single-touch only.
         skView.isMultipleTouchEnabled = true
 
-        let scene = GameScene(size: skView.bounds.size)
-        scene.scaleMode = .resizeFill
-        skView.presentScene(scene)
+        let menu = MainMenuScene(size: skView.bounds.size)
+        menu.scaleMode = .resizeFill
+        skView.presentScene(menu)
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
