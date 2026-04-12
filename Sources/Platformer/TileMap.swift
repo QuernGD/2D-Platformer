@@ -2,11 +2,13 @@ import CoreGraphics
 
 /// Tile kinds understood by the collision / rendering code.
 enum TileKind: Int {
-    case empty    = 0
-    case solid    = 1  // regular ground / wall
-    case brick    = 2  // breakable (treated as solid)
-    case question = 3  // solid, can turn into `empty` when hit from below
-    case oneWay   = 4  // jump-through platform (only collides from above)
+    case empty     = 0
+    case solid     = 1  // regular ground / wall
+    case brick     = 2  // breakable (treated as solid)
+    case question  = 3  // solid, can turn into `.usedBlock` when hit from below
+    case oneWay    = 4  // jump-through platform (only collides from above)
+    case coin      = 5  // collectible — non-solid decorative tile
+    case usedBlock = 6  // solid, inert (post-question-block state)
 }
 
 /// Simple integer-grid tile map with AABB collision queries.
@@ -42,12 +44,13 @@ final class TileMap {
     }
 
     /// True for tiles that block horizontal and vertical movement fully.
-    /// One-way platforms are intentionally NOT included here — they are
-    /// handled specially in the vertical collision pass.
+    /// One-way platforms and coins are intentionally NOT included here —
+    /// one-way platforms are handled specially in the vertical collision
+    /// pass, and coins are decorative / collectible.
     func isSolid(at col: Int, row: Int) -> Bool {
         switch tile(at: col, row: row) {
-        case .solid, .brick, .question: return true
-        case .oneWay, .empty:           return false
+        case .solid, .brick, .question, .usedBlock: return true
+        case .oneWay, .empty, .coin:                return false
         }
     }
 

@@ -13,6 +13,9 @@ final class GameViewController: UIViewController {
         skView.ignoresSiblingOrder = true
         skView.showsFPS = true
         skView.showsNodeCount = true
+        // REQUIRED for the on-screen D-pad + jump to register simultaneously.
+        // UIView's default is single-touch only.
+        skView.isMultipleTouchEnabled = true
 
         let scene = GameScene(size: skView.bounds.size)
         scene.scaleMode = .resizeFill

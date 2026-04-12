@@ -14,30 +14,34 @@ import SpriteKit
 final class Player {
 
     // MARK: - Tunables
+    //
+    // These are tuned for a 32-point tile size. Scaling them up from the
+    // original 16-point values produced movement that feels appropriate
+    // on a phone screen.
 
     // Horizontal movement
-    static let maxWalkSpeed: CGFloat = 150.0
-    static let maxRunSpeed:  CGFloat = 250.0
-    static let groundAccel:  CGFloat = 600.0
-    static let groundDecel:  CGFloat = 600.0
-    static let skidDecel:    CGFloat = 1200.0  // doubled when reversing on ground
-    static let airAccel:     CGFloat = 600.0
+    static let maxWalkSpeed: CGFloat = 200.0
+    static let maxRunSpeed:  CGFloat = 350.0
+    static let groundAccel:  CGFloat = 900.0
+    static let groundDecel:  CGFloat = 900.0
+    static let skidDecel:    CGFloat = 1800.0  // doubled when reversing on ground
+    static let airAccel:     CGFloat = 900.0
     // Note: there is intentionally NO air friction — airborne velocity persists.
 
     // Jump / gravity
-    static let jumpVelocityWalk: CGFloat = 520.0
-    static let jumpVelocityRun:  CGFloat = 580.0
-    static let risingGravity:    CGFloat = -630.0   // while rising AND jump held
-    static let fallingGravity:   CGFloat = -2200.0  // ~3.5x stronger
-    static let maxFallSpeed:     CGFloat = -600.0   // terminal velocity
+    static let jumpVelocityWalk: CGFloat = 680.0
+    static let jumpVelocityRun:  CGFloat = 750.0
+    static let risingGravity:    CGFloat = -900.0   // while rising AND jump held
+    static let fallingGravity:   CGFloat = -3000.0  // ~3.3x stronger
+    static let maxFallSpeed:     CGFloat = -800.0   // terminal velocity
 
     // Forgiveness windows (seconds)
     static let coyoteWindow:     CGFloat = 0.10     // ~6 frames @ 60 fps
     static let jumpBufferWindow: CGFloat = 0.10
 
     // Collision box — intentionally smaller than the visual sprite
-    static let hitboxWidth:  CGFloat = 12.0
-    static let hitboxHeight: CGFloat = 16.0
+    static let hitboxWidth:  CGFloat = 24.0
+    static let hitboxHeight: CGFloat = 32.0
 
     // MARK: - State
 
@@ -58,6 +62,10 @@ final class Player {
 
     /// Optional sprite node kept in sync with `position`.
     weak var node: SKSpriteNode?
+
+    /// Called whenever the player bonks a solid tile from below. The scene
+    /// uses this to react to question-block hits (coin pop, etc).
+    var onHeadBonk: ((_ col: Int, _ row: Int) -> Void)?
 
     init(position: CGPoint) {
         self.position = position
@@ -239,11 +247,15 @@ final class Player {
 
         var push: CGFloat = 0
         var landed = false
+        var bonkCol: Int? = nil
+        var bonkRow: Int? = nil
 
         for col in minCol...maxCol {
             for row in minRow...maxRow {
                 let kind = map.tile(at: col, row: row)
                 guard kind != .empty else { continue }
+                // Non-solid decorative tiles (e.g. coins) never block motion.
+                if !map.isSolid(at: col, row: row) && kind != .oneWay { continue }
                 let tile = map.tileRect(col: col, row: row)
 
                 // One-way platforms: only collide if the player was at or
@@ -274,6 +286,8 @@ final class Player {
                     if overlap > push {
                         push = overlap
                         landed = false
+                        bonkCol = col
+                        bonkRow = row
                     }
                 }
             }
@@ -284,6 +298,9 @@ final class Player {
                 position.y += push
             } else if dy > 0 {
                 position.y -= push
+                if let c = bonkCol, let r = bonkRow {
+                    onHeadBonk?(c, r)
+                }
             }
             velocity.dy = 0
             isOnGround = landed

@@ -5,10 +5,10 @@ import SpriteKit
 /// resolved by `GameScene`, which calls `squash()` on a successful stomp.
 final class Goomba {
 
-    // MARK: - Tunables
-    static let walkSpeed:    CGFloat = 40.0
-    static let hitboxWidth:  CGFloat = 14.0
-    static let hitboxHeight: CGFloat = 14.0
+    // MARK: - Tunables (scaled for 32-point tiles)
+    static let walkSpeed:    CGFloat = 80.0
+    static let hitboxWidth:  CGFloat = 28.0
+    static let hitboxHeight: CGFloat = 28.0
 
     // MARK: - State
     var position: CGPoint
