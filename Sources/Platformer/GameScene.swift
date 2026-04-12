@@ -2,6 +2,8 @@ import SpriteKit
 
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 
 /// Main scene that wires the custom physics up to SpriteKit's rendering and
@@ -282,6 +284,70 @@ public final class GameScene: SKScene {
         case 8:   input.runHeld   = false
         default: break
         }
+    }
+    #endif
+
+    // MARK: - Input (iOS / tvOS)
+
+    // On-screen touch regions (split-screen controls). The screen is divided
+    // into three horizontal zones: left third = move left, middle third =
+    // move right, right third = jump. Run is implicitly always on.
+    //
+    // Each active touch is tracked by its zone so multi-touch works (e.g.
+    // holding right with one thumb and jumping with the other).
+
+    #if !os(macOS)
+    private enum TouchZone { case left, right, jump }
+    private var touchZones: [ObjectIdentifier: TouchZone] = [:]
+
+    public override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            let zone = zone(for: touch)
+            touchZones[ObjectIdentifier(touch)] = zone
+        }
+        recomputeTouchInput(newPresses: true)
+    }
+
+    public override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            touchZones[ObjectIdentifier(touch)] = zone(for: touch)
+        }
+        recomputeTouchInput(newPresses: false)
+    }
+
+    public override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            touchZones.removeValue(forKey: ObjectIdentifier(touch))
+        }
+        recomputeTouchInput(newPresses: false)
+    }
+
+    public override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            touchZones.removeValue(forKey: ObjectIdentifier(touch))
+        }
+        recomputeTouchInput(newPresses: false)
+    }
+
+    private func zone(for touch: UITouch) -> TouchZone {
+        let loc = touch.location(in: self)
+        let w = size.width
+        if loc.x < w / 3 { return .left }
+        if loc.x < 2 * w / 3 { return .right }
+        return .jump
+    }
+
+    private func recomputeTouchInput(newPresses: Bool) {
+        let active = Set(touchZones.values)
+        input.leftHeld  = active.contains(.left)
+        input.rightHeld = active.contains(.right)
+        input.runHeld   = true  // always run on mobile
+
+        let jumpNow = active.contains(.jump)
+        if newPresses && jumpNow && !input.jumpHeld {
+            input.jumpPressedThisFrame = true
+        }
+        input.jumpHeld = jumpNow
     }
     #endif
 }
