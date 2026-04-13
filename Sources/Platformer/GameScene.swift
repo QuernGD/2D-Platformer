@@ -26,6 +26,17 @@ public final class GameScene: SKScene {
     }
     private var state: GameState = .playing
 
+    // MARK: - Selected level
+    /// Which level this scene is playing. Set via the convenience
+    /// initializer below; defaults to 1 when the scene is constructed
+    /// with the plain `init(size:)`.
+    private var currentLevel: Int = 1
+
+    public convenience init(size: CGSize, level: Int) {
+        self.init(size: size)
+        self.currentLevel = level
+    }
+
     // MARK: - World state
     private var map: TileMap!
     private var player: Player!
@@ -88,11 +99,22 @@ public final class GameScene: SKScene {
         camera = cam
         addChild(cam)
 
-        buildLevel()
-
-        // Player spawns just above the starting ground.
+        // Build the selected level via LevelBuilder. It fills the map and
+        // calls our spawnGoomba helper for each enemy.
         let ts = GameScene.tileSize
-        spawnPoint = CGPoint(x: 3.5 * ts, y: 5.0 * ts)
+        let levelWidth = LevelBuilder.mapWidth(forLevel: currentLevel)
+        map = TileMap(width: levelWidth, height: 15, tileSize: ts)
+        let info = LevelBuilder.build(
+            level: currentLevel,
+            map: map,
+            tileSize: ts,
+            spawner: { [unowned self] col, row in
+                self.spawnGoomba(col: col, row: row)
+            })
+        spawnPoint     = info.spawnPoint
+        flagpoleColumn = info.flagpoleColumn
+        renderAllTiles()
+
         player = Player(position: spawnPoint)
         player.onHeadBonk = { [weak self] col, row in
             self?.handleHeadBonk(col: col, row: row)
@@ -208,153 +230,6 @@ public final class GameScene: SKScene {
 
     private func updateCoinLabel() {
         coinLabel.text = "Coins: \(coinCount)"
-    }
-
-    // MARK: - Level
-
-    private func buildLevel() {
-        let w = 200
-        let h = 15
-        map = TileMap(width: w, height: h, tileSize: GameScene.tileSize)
-
-        // Fill rows 0-1 with ground for the whole level — we'll carve pits.
-        for col in 0..<w {
-            map.setTile(.solid, at: col, row: 0)
-            map.setTile(.solid, at: col, row: 1)
-        }
-
-        // 1. Flat start area (cols 0-5): just ground, nothing fancy.
-
-        // 2. Two goombas in the learning area
-        spawnGoomba(col: 8,  row: 3)
-        spawnGoomba(col: 11, row: 3)
-
-        // 3. Brick row with question block — cols 12-16 at row 5
-        for col in 12...16 { map.setTile(.brick, at: col, row: 5) }
-        map.setTile(.question, at: 14, row: 5)
-
-        // Coin arc over the bricks
-        for col in 12...16 { map.setTile(.coin, at: col, row: 7) }
-
-        // 4. Staircase up then down (cols 20-28)
-        //    Heights: 2, 3, 4, 5, 5, 5, 4, 3, 2
-        let stairHeights = [2, 3, 4, 5, 5, 5, 4, 3, 2]
-        for (i, top) in stairHeights.enumerated() {
-            let col = 20 + i
-            for row in 2...(top + 1) {
-                map.setTile(.solid, at: col, row: row)
-            }
-        }
-        // Coins arcing over the staircase peak
-        for col in 23...25 { map.setTile(.coin, at: col, row: 8) }
-
-        // 5. First pit — 3-tile gap at cols 32-34
-        for col in 32...34 {
-            map.setTile(.empty, at: col, row: 0)
-            map.setTile(.empty, at: col, row: 1)
-        }
-        // Coins floating over the pit
-        for col in 32...34 { map.setTile(.coin, at: col, row: 4) }
-
-        // 6. Three goombas after the gap
-        spawnGoomba(col: 36, row: 3)
-        spawnGoomba(col: 38, row: 3)
-        spawnGoomba(col: 40, row: 3)
-
-        // 7. Floating platforms — mix of solid and one-way (cols 42-56)
-        for col in 42...44 { map.setTile(.solid,  at: col, row: 5) }
-        for col in 46...48 { map.setTile(.oneWay, at: col, row: 7) }
-        for col in 50...52 { map.setTile(.solid,  at: col, row: 6) }
-        for col in 54...56 { map.setTile(.oneWay, at: col, row: 8) }
-        // Coin arcs above each platform
-        for col in 42...44 { map.setTile(.coin, at: col, row: 7) }
-        for col in 46...48 { map.setTile(.coin, at: col, row: 9) }
-        for col in 50...52 { map.setTile(.coin, at: col, row: 8) }
-        for col in 54...56 { map.setTile(.coin, at: col, row: 10) }
-
-        // Goomba on top of the first solid floating platform
-        spawnGoomba(col: 43, row: 7)
-
-        // 8. Pipe — 2 wide, 4 tall (cols 58-59, rows 2-5)
-        for col in 58...59 {
-            for row in 2...5 {
-                map.setTile(.solid, at: col, row: row)
-            }
-        }
-
-        // 9. Running-jump gap — 5 tiles wide at cols 65-69
-        for col in 65...69 {
-            map.setTile(.empty, at: col, row: 0)
-            map.setTile(.empty, at: col, row: 1)
-        }
-        // Coin arc over the gap (higher in the middle)
-        map.setTile(.coin, at: 65, row: 4)
-        map.setTile(.coin, at: 66, row: 5)
-        map.setTile(.coin, at: 67, row: 5)
-        map.setTile(.coin, at: 68, row: 5)
-        map.setTile(.coin, at: 69, row: 4)
-
-        // 10. Elevated section with blocks above (cols 75-90)
-        for col in 75...90 { map.setTile(.solid, at: col, row: 2) }
-        for col in 77...82 { map.setTile(.brick, at: col, row: 6) }
-        map.setTile(.question, at: 79, row: 6)
-        map.setTile(.question, at: 81, row: 6)
-        // Coins under the bricks (where the player can walk along row 3)
-        for col in 78...81 { map.setTile(.coin, at: col, row: 4) }
-        // Two goombas patrolling the elevated ground
-        spawnGoomba(col: 84, row: 4)
-        spawnGoomba(col: 88, row: 4)
-
-        // 11. Long precision-jumping pit (cols 100-120)
-        for col in 100...120 {
-            map.setTile(.empty, at: col, row: 0)
-            map.setTile(.empty, at: col, row: 1)
-        }
-        // Small solid platforms at varying heights
-        map.setTile(.solid, at: 103, row: 4)
-        map.setTile(.solid, at: 107, row: 5)
-        map.setTile(.solid, at: 111, row: 4)
-        map.setTile(.solid, at: 115, row: 6)
-        map.setTile(.solid, at: 119, row: 4)
-        // Coins above each platform
-        map.setTile(.coin, at: 103, row: 6)
-        map.setTile(.coin, at: 107, row: 7)
-        map.setTile(.coin, at: 111, row: 6)
-        map.setTile(.coin, at: 115, row: 8)
-        map.setTile(.coin, at: 119, row: 6)
-
-        // 12. Stairs up to the flagpole (cols 183-188) — placed in the
-        //     last 20 tiles so the flagpole sits within the trigger zone.
-        let finalStairs = [2, 3, 4, 5, 6, 6]
-        for (i, top) in finalStairs.enumerated() {
-            let col = 183 + i
-            for row in 2...(top + 1) {
-                map.setTile(.solid, at: col, row: row)
-            }
-        }
-        // Goomba on the top of the stairs
-        spawnGoomba(col: 188, row: 8)
-
-        // 13. Flagpole — tall thin column at col 192, rows 2-12.
-        //     `flagpoleColumn` is used by the completion trigger.
-        flagpoleColumn = 192
-        for row in 2...12 {
-            map.setTile(.solid, at: 192, row: row)
-        }
-
-        // 14. Extra content in the lull between the precision pit and the
-        //     final staircase so cols 121-180 aren't empty.
-        spawnGoomba(col: 135, row: 3)
-        spawnGoomba(col: 150, row: 3)
-        spawnGoomba(col: 165, row: 3)
-        spawnGoomba(col: 178, row: 3)
-
-        // Decorative coin line through the mid-section
-        for col in stride(from: 125, through: 180, by: 5) {
-            map.setTile(.coin, at: col, row: 4)
-        }
-
-        renderAllTiles()
     }
 
     // MARK: - Tile rendering
@@ -494,9 +369,11 @@ public final class GameScene: SKScene {
             return
         }
 
-        // Reached the flagpole trigger zone → level complete.
+        // Reached the flagpole → level complete. The flagpole is a solid
+        // column, so wall push-out clamps `hitbox.maxX` to exactly the
+        // column's left edge on the frame the player touches it.
         let triggerX = CGFloat(flagpoleColumn) * GameScene.tileSize
-        if player.position.x >= triggerX && state == .playing {
+        if player.hitbox.maxX >= triggerX && state == .playing {
             completeLevel()
         }
     }
@@ -680,6 +557,7 @@ public final class GameScene: SKScene {
         guard let view = self.view else { return }
         let scene = LevelCompleteScene(
             size: size,
+            level: currentLevel,
             coins: coinCount,
             elapsed: TimeInterval(gameTime))
         scene.scaleMode = .resizeFill
@@ -812,7 +690,7 @@ public final class GameScene: SKScene {
             resumeGame()
         case "retry":
             guard let view = self.view else { return }
-            let game = GameScene(size: size)
+            let game = GameScene(size: size, level: currentLevel)
             game.scaleMode = .resizeFill
             view.presentScene(game, transition: .fade(withDuration: 0.4))
         case "mainMenu":
